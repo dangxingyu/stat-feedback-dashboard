@@ -45,12 +45,15 @@
       <div class="controls">
         <label><input type="radio" name="curve-mode" value="abs" checked /> Monitor loss</label>
         <label><input type="radio" name="curve-mode" value="diff" /> Paired difference vs √κ baseline</label>
+        <span style="width:16px"></span>
+        <label><input type="checkbox" id="curve-zoom" checked /> Zoom to steps after anchor + 1,024</label>
       </div>
       <p class="caption">Monitor-set loss (first 1,048,576 tokens of a fixed validation span, nats/token)
         every 128 reference steps. The dashed vertical line marks anchor + 1,024, the length of the
         Section 6 branches. The paired difference subtracts BASE_SQRT from the same anchor at the same
         step (negative = better). Final-set scores stay hidden until the scalar selection is locked.</p>
       <div class="grid2" id="curve-panels"></div>
+      <p class="caption" id="curve-pending"></p>
     </section>
     <section id="dev" class="tab">
       <p class="caption">Development selection (protocol §9.1): matrix gain c·√κ with

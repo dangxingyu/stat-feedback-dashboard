@@ -276,8 +276,10 @@ function curveSeries(runs, mode, baselineFor) {
 
 function renderCurves() {
   const mode = document.querySelector('input[name="curve-mode"]:checked').value;
+  const zoom = document.getElementById("curve-zoom").checked;
   const host = document.getElementById("curve-panels");
   host.replaceChildren();
+  const pending = [];
   const base = (anchor, kappa) => DATA.runs.find((r) => r.method === "BASE_SQRT" && r.anchor === anchor && r.kappa === kappa);
   const panels = [];
   for (const kappa of [16, 4]) {
@@ -296,16 +298,19 @@ function renderCurves() {
   panels.push({ title: "Diagnostics · anchor 5,000 · κ = 16", anchor: 5000, kappa: 16,
     runs: DATA.runs.filter((r) => r.phase === "diagnostic" || (r.phase === "primary" && r.anchor === 5000 && ["STAT_FEEDBACK", "BASE_SQRT"].includes(r.method))) });
   for (const p of panels) {
-    const series = curveSeries(p.runs, mode, (r) => {
+    let series = curveSeries(p.runs, mode, (r) => {
       const b = base(p.anchor, p.kappa);
       return r.run_id === (b && b.run_id) ? null : b;
     });
+    if (!series.length) { pending.push(p.title); continue; }
+    const start = zoom ? p.anchor + 1024 : p.anchor;
+    series = series.map((s) => ({ ...s, points: s.points.filter((q) => q[0] >= start) }));
     if (mode === "abs" && DATA.reference_curve.length) {
-      const ref = DATA.reference_curve.filter((q) => q[0] >= p.anchor);
+      const ref = DATA.reference_curve.filter((q) => q[0] >= start);
       if (ref.length) series.push({ name: "128K reference (every 1,000)", color: css("--muted"), points: ref, dash: "4 3" });
     }
     lineChart(host, {
-      title: p.title, series, xDomain: [p.anchor, END], xLabel: "reference step",
+      title: p.title, series, xDomain: [start, END], xLabel: "reference step",
       yLabel: mode === "abs" ? "monitor loss (nats/token)" : "Δ loss vs √κ baseline",
       includeZero: mode === "diff", marks: [{ x: p.anchor + 1024, label: "a + 1,024" }],
       valueFormat: (v) => (mode === "diff" ? (v >= 0 ? "+" : "") + (v * 1000).toFixed(2) + "e-3" : fmt(v)),
@@ -313,6 +318,8 @@ function renderCurves() {
       empty: "No evaluations yet.",
     });
   }
+  document.getElementById("curve-pending").textContent = pending.length
+    ? `Not started yet: ${pending.join(" · ")}.` : "";
 }
 
 function renderDev() {
@@ -512,6 +519,7 @@ document.getElementById("tabs").addEventListener("click", (evt) => {
   history.replaceState(null, "", `#${tab}`);
 });
 document.querySelectorAll('input[name="curve-mode"]').forEach((i) => i.addEventListener("change", renderCurves));
+document.getElementById("curve-zoom").addEventListener("change", renderCurves);
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => DATA && render());
 
 fetch(`data.json?t=${Date.now()}`).then((r) => r.json()).then((d) => {
