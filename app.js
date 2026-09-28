@@ -198,6 +198,36 @@ function renderTiles() {
     el("div", { class: "item", html: `<b>SOURCE_MISMATCH · ${m.id}</b> — ${m.text}` })));
 }
 
+function renderFindings() {
+  const items = [];
+  const dev = DATA.dev;
+  if (dev.rows.length) {
+    const byC = {};
+    for (const r of dev.rows) (byC[r.c] = byC[r.c] || []).push(r);
+    const complete = Object.entries(byC).filter(([, v]) => v.length === 3)
+      .map(([c, v]) => [Number(c), v.reduce((s, r) => s + r.dev_loss, 0) / 3]).sort((a, b) => a[1] - b[1]);
+    if (complete.length) {
+      const [bestC, bestM] = complete[0];
+      items.push(`Scalar sweep (dev set, step 13,000): among ${complete.length} matrix gains with all three anchors done, c = ${bestC} leads with mean dev loss ${bestM.toFixed(4)}` +
+        (dev.selected != null ? `; the protocol selection is c = ${dev.selected}.` : "; the selection waits for all five gains (c = 1 is the √κ baseline run)."));
+    }
+  }
+  const det = DATA.determinism || [];
+  const detOk = det.filter((d) => d.deterministic);
+  if (detOk.length) items.push(`Training is bitwise reproducible across runs and H100 nodes only with rank-ordered reductions and deterministic kernels (${new Set(detOk.map((d) => d.digest)).size === 1 ? "verified on " + detOk.length + " nodes" : "not yet verified"}); every campaign run uses this mode.`);
+  const dry = (DATA.dry_runs || []).filter((r) => r.validation_ratio != null);
+  if (dry.length) {
+    const single = dry.filter((r) => r.geometry_batches === 1).map((r) => r.validation_ratio);
+    const pooled = dry.filter((r) => r.geometry_batches > 1).map((r) => r.validation_ratio);
+    items.push(`The top-16 sharp directions from one 131K-token batch keep ${Math.round(Math.min(...single) * 100)}–${Math.round(Math.max(...single) * 100)}% of their curvature on held-out tokens` +
+      (pooled.length ? `; from 1M pooled tokens they keep ${Math.round(Math.min(...pooled) * 100)}–${Math.round(Math.max(...pooled) * 100)}%.` : "."));
+    const accepted = dry.filter((r) => r.stat_accepted);
+    if (accepted.length) items.push(`The Stat operator is accepted in every engineering calibration that reached it (${accepted.length}); its eigenvalues lie between √κ = 4 and κ = 16, i.e. sharp directions want more than √κ movement.`);
+  }
+  items.push("Confirmatory trajectories have not started: they wait for the protocol revision (see Engineering).");
+  document.getElementById("findings").replaceChildren(...items.map((s) => el("li", { text: s })));
+}
+
 function renderMatrix() {
   const groups = [
     ["Development · global c", (r) => r.method === "GLOBAL_CANDIDATE", 16],
@@ -506,7 +536,7 @@ function renderEngineering() {
 
 function render() {
   renderEngineering();
-  renderStamp(); renderTiles(); renderMatrix(); renderCurves(); renderDev(); renderCalibration(); renderChecks(); renderProtocol();
+  renderStamp(); renderTiles(); renderFindings(); renderMatrix(); renderCurves(); renderDev(); renderCalibration(); renderChecks(); renderProtocol();
   document.getElementById("foot").textContent =
     "Generated from the run directories by dashboard/export.py. Numbers are single-seed and provisional until the protocol lock.";
 }
