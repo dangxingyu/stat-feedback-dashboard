@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stat × Feedback Dashboard</title>
+  <meta name="description" content="Live results of the stat-feedback v1.1 experiments: large-batch continuation of track-3 MuonW pretraining to the original endpoint with a rank-16 directional correction." />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <div class="title-row">
+        <div>
+          <p class="eyebrow">Batch-size scaling · follow-up to Section 6</p>
+          <h1>Stat × feedback: large-batch continuation to the pretraining endpoint</h1>
+          <p class="lede">From checkpoints of one 128K-token MuonW run, switch to 2M tokens per update
+            and train to the original endpoint (reference step 13,000). In the 16 sharpest directions of
+            the preconditioned Gauss–Newton matrix, a fitted statistics operator <i>S</i> and a curvature
+            feedback operator <i>T</i> replace the √κ rule. Everything else keeps √κ.</p>
+        </div>
+        <div class="stamp" id="stamp"></div>
+      </div>
+      <nav class="tabs" id="tabs">
+        <button data-tab="overview" class="on">Overview</button>
+        <button data-tab="curves">Loss curves</button>
+        <button data-tab="dev">Scalar sweep</button>
+        <button data-tab="calibration">Calibration</button>
+        <button data-tab="checks">Checks</button>
+        <button data-tab="protocol">Protocol</button>
+      </nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <section id="overview" class="tab on">
+      <div class="tiles" id="tiles"></div>
+      <div class="notice" id="notices"></div>
+      <h2>Run matrix</h2>
+      <p class="caption">Each cell is one trajectory from its anchor to step 13,000. Bars show progress in
+        reference steps. Hover for step, speed and ETA.</p>
+      <div id="matrix"></div>
+    </section>
+    <section id="curves" class="tab">
+      <div class="controls">
+        <label><input type="radio" name="curve-mode" value="abs" checked /> Monitor loss</label>
+        <label><input type="radio" name="curve-mode" value="diff" /> Paired difference vs √κ baseline</label>
+      </div>
+      <p class="caption">Monitor-set loss (first 1,048,576 tokens of a fixed validation span, nats/token)
+        every 128 reference steps. The dashed vertical line marks anchor + 1,024, the length of the
+        Section 6 branches. The paired difference subtracts BASE_SQRT from the same anchor at the same
+        step (negative = better). Final-set scores stay hidden until the scalar selection is locked.</p>
+      <div class="grid2" id="curve-panels"></div>
+    </section>
+    <section id="dev" class="tab">
+      <p class="caption">Development selection (protocol §9.1): matrix gain c·√κ with
+        c ∈ {¼, ½, 1, 2, 4} at κ = 16, scored on the dev set at step 13,000. The selected c minimizes
+        the equal-weight mean over the three anchors; ties within 1e-5 go to the smallest |log₂ c|.</p>
+      <div id="dev-chart"></div>
+      <div id="dev-table"></div>
+    </section>
+    <section id="calibration" class="tab">
+      <p class="caption">One row per calibration. S eigenvalues are shown before (hollow) and after
+        (filled) clipping to [¼, κ]; reference lines at √κ and κ. Gates follow protocol §6–7.</p>
+      <div id="cal-chart"></div>
+      <div id="cal-table"></div>
+    </section>
+    <section id="checks" class="tab">
+      <p class="caption">Engineering prechecks of protocol §13 and source bindings.</p>
+      <div id="check-table"></div>
+    </section>
+    <section id="protocol" class="tab">
+      <div id="timeline"></div>
+      <div class="prose" id="protocol-text"></div>
+    </section>
+  </main>
+  <footer class="wrap foot" id="foot"></footer>
+  <div class="tooltip" id="tooltip" role="status"></div>
+  <script src="app.js"></script>
+</body>
+</html>
