@@ -433,7 +433,65 @@ function renderProtocol() {
   <p>Protocol SHA-256 <code>${DATA.protocol.sha256}</code>, run matrix <code>${DATA.protocol.run_matrix_sha256.slice(0, 16)}…</code>.</p>`;
 }
 
+function renderEngineering() {
+  const runs = (DATA.dry_runs || []).filter((r) => r.rho && r.rho_validation);
+  const host = document.getElementById("eng-rayleigh");
+  host.replaceChildren();
+  const label = (r) => `a=${r.anchor} · ${r.geometry_batches === 1 ? "131K" : (r.geometry_batches * 131072 / 1048576).toFixed(0) + "M"} tokens`;
+  const seen = new Map();
+  for (const r of runs) { const k = label(r); if (!seen.has(k)) seen.set(k, r); }
+  const studies = [...seen.values()].sort((a, b) => a.anchor - b.anchor || a.geometry_batches - b.geometry_batches);
+  const palette = ["--s1", "--s2", "--s3", "--s4", "--s5"];
+  const series = [];
+  studies.forEach((r, i) => {
+    const color = css(palette[i % palette.length]);
+    series.push({ name: `${label(r)} · construction`, color, points: r.rho.map((v, j) => [j + 1, v * 1000]) });
+    series.push({ name: `${label(r)} · held-out`, color, dash: "5 4", points: r.rho_validation.map((v, j) => [j + 1, v * 1000]) });
+  });
+  lineChart(host, { title: "Rayleigh quotient by mode", series, xDomain: [1, 16], xTicks: [1, 4, 8, 12, 16],
+    xLabel: "Ritz mode (descending)", yLabel: "ρ × 10³", valueFormat: (v) => v.toFixed(2), yFormat: (v) => v.toFixed(0) });
+  const res = studies.map((r, i) => ({ name: label(r), color: css(palette[i % palette.length]),
+    points: (r.residuals_validation || []).map((v, j) => [j + 1, v]) }));
+  lineChart(host, { title: "Held-out residual per mode (gate 0.1)", series: res, xDomain: [1, 16], xTicks: [1, 4, 8, 12, 16],
+    xLabel: "Ritz mode", yLabel: "relative residual", yDomain: [0, 1], marks: [], valueFormat: (v) => v.toFixed(3),
+    yFormat: (v) => v.toFixed(1) });
+  const head = ["study", "held-out ratio", "held-out residual", "S accepted", "S eigenvalues", "Stat holdout error", "local check", "|ηK₀|", "‖T‖", "time"];
+  const table = el("table", {}, el("tr", {}, head.map((h, i) => el("th", { class: i ? "num" : "", text: h }))));
+  for (const r of (DATA.dry_runs || [])) {
+    const S = r.S || [];
+    const eta = r.eta_K0_abs || [];
+    table.append(el("tr", {},
+      el("td", { text: `${r.run_id}${r.override ? " (gates overridden)" : ""}${r.v_source === "validation" ? " · V on held-out" : ""}` }),
+      el("td", { class: "num", text: r.validation_ratio != null ? r.validation_ratio.toFixed(2) : "–" }),
+      el("td", { class: "num", text: r.residuals_validation ? `${Math.min(...r.residuals_validation).toFixed(2)}–${Math.max(...r.residuals_validation).toFixed(2)}` : "–" }),
+      el("td", { class: "num", text: r.stat_accepted == null ? "–" : r.stat_accepted ? "yes" : r.stat_reason }),
+      el("td", { class: "num", text: S.length ? `${Math.min(...S).toFixed(1)}–${Math.max(...S).toFixed(1)}` : "–" }),
+      el("td", { class: "num", text: r.holdout_error != null ? `${r.holdout_error.toFixed(1)} vs ${r.holdout_error_sqrt_kappa.toFixed(1)} (√κ)` : "–" }),
+      el("td", { class: "num", text: r.local_max_error != null ? `${r.local_max_error.toFixed(2)} ${r.feedback_valid ? "✓" : "✗ (gate 0.5)"}` : "–" }),
+      el("td", { class: "num", text: eta.length ? `${Math.min(...eta).toFixed(2)}–${Math.max(...eta).toFixed(2)}` : "–" }),
+      el("td", { class: "num", text: r.T_norm != null ? r.T_norm.toFixed(3) : "–" }),
+      el("td", { class: "num", text: dur(r.seconds) })));
+  }
+  document.getElementById("eng-table").replaceChildren(el("div", { class: "scroll" }, table));
+  const det = DATA.determinism || [];
+  const groups = [["default kernels, NCCL sum", (d) => d.reduction === "nccl"],
+    ["default kernels, ordered sum", (d) => d.reduction === "ordered" && !d.deterministic && d.sdpa === "default"],
+    ["efficient attention, ordered sum", (d) => d.sdpa === "efficient"],
+    ["deterministic kernels, ordered sum", (d) => d.deterministic]];
+  const dt = el("table", {}, el("tr", {}, ["configuration", "runs", "distinct states", "digests (node)"].map((h) => el("th", { text: h }))));
+  for (const [name, pick] of groups) {
+    const rows = det.filter(pick);
+    if (!rows.length) continue;
+    const distinct = new Set(rows.map((r) => r.digest)).size;
+    dt.append(el("tr", {}, el("td", { text: name }), el("td", { class: "num", text: rows.length }),
+      el("td", {}, statusBadge(distinct === 1 ? "pass" : "fail"), el("span", { text: ` ${distinct}` })),
+      el("td", { text: rows.map((r) => `${r.digest.slice(0, 6)} (${(r.node || "").replace("della-", "")})`).join(", ") })));
+  }
+  document.getElementById("eng-determinism").replaceChildren(el("div", { class: "scroll" }, dt));
+}
+
 function render() {
+  renderEngineering();
   renderStamp(); renderTiles(); renderMatrix(); renderCurves(); renderDev(); renderCalibration(); renderChecks(); renderProtocol();
   document.getElementById("foot").textContent =
     "Generated from the run directories by dashboard/export.py. Numbers are single-seed and provisional until the protocol lock.";
