@@ -107,6 +107,11 @@ function lineChart(host, opts) {
     "text-anchor": "middle", text: opts.yLabel || "" }));
   svg.append(grid);
   if (opts.includeZero) svg.append(el("svg:line", { class: "zero", x1: m.l, x2: W - m.r, y1: y(0), y2: y(0) }));
+  for (const h of opts.hLines || []) {
+    svg.append(el("svg:line", { x1: m.l, x2: W - m.r, y1: y(h.y), y2: y(h.y), stroke: css("--critical"),
+      "stroke-dasharray": "4 3", "stroke-width": 1 }));
+    svg.append(el("svg:text", { x: W - m.r - 2, y: y(h.y) - 4, "text-anchor": "end", text: h.label }));
+  }
   for (const mark of opts.marks || []) {
     if (mark.x < xd[0] || mark.x > xd[1]) continue;
     svg.append(el("svg:line", { x1: x(mark.x), x2: x(mark.x), y1: m.t, y2: H - m.b, stroke: css("--muted"),
@@ -453,7 +458,8 @@ function renderEngineering() {
   const res = studies.map((r, i) => ({ name: label(r), color: css(palette[i % palette.length]),
     points: (r.residuals_validation || []).map((v, j) => [j + 1, v]) }));
   lineChart(host, { title: "Held-out residual per mode (gate 0.1)", series: res, xDomain: [1, 16], xTicks: [1, 4, 8, 12, 16],
-    xLabel: "Ritz mode", yLabel: "relative residual", yDomain: [0, 1], marks: [], valueFormat: (v) => v.toFixed(3),
+    xLabel: "Ritz mode", yLabel: "relative residual", yDomain: [0, 1], marks: [], hLines: [{ y: 0.1, label: "v1.1 gate 0.1" }],
+    valueFormat: (v) => v.toFixed(3),
     yFormat: (v) => v.toFixed(1) });
   const head = ["study", "held-out ratio", "held-out residual", "S accepted", "S eigenvalues", "Stat holdout error", "local check", "|ηK₀|", "‖T‖", "time"];
   const table = el("table", {}, el("tr", {}, head.map((h, i) => el("th", { class: i ? "num" : "", text: h }))));
@@ -484,7 +490,8 @@ function renderEngineering() {
     if (!rows.length) continue;
     const distinct = new Set(rows.map((r) => r.digest)).size;
     dt.append(el("tr", {}, el("td", { text: name }), el("td", { class: "num", text: rows.length }),
-      el("td", {}, statusBadge(distinct === 1 ? "pass" : "fail"), el("span", { text: ` ${distinct}` })),
+      el("td", {}, el("span", { class: "status" }, el("span", { class: "dot", style: `background:var(${distinct === 1 ? "--good" : "--critical"})` }),
+        el("span", { text: distinct === 1 ? "reproducible (1 state)" : `not reproducible (${distinct} states)` }))),
       el("td", { text: rows.map((r) => `${r.digest.slice(0, 6)} (${(r.node || "").replace("della-", "")})`).join(", ") })));
   }
   document.getElementById("eng-determinism").replaceChildren(el("div", { class: "scroll" }, dt));
