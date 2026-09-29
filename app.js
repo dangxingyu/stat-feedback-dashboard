@@ -599,12 +599,12 @@ function renderBatchScans() {
   if (!host) return;
   host.replaceChildren();
   const scans = DATA.batch_scans || [];
-  const order = ["reference 128K", "2M from a1000", "2M from a5000", "2M from a9000"];
-  const color = (t) => css(["--s1", "--s2", "--s3", "--s4"][Math.max(0, order.indexOf(t))]);
+  const order = ["reference 128K", "2M from a1000", "2M from a5000", "2M from a9000", "512K from a1000"];
+  const color = (t) => css(["--s1", "--s2", "--s3", "--s4", "--s5"][Math.max(0, order.indexOf(t))]);
   const refAt = (step) => scans.find((r) => r.trajectory.startsWith("reference") && r.step === step);
   const byTraj = order.map((t) => {
     const own = scans.filter((r) => r.trajectory === t);
-    const branch = t.startsWith("2M") ? refAt(Number(t.split("a")[1])) : null;   // start at the branch point
+    const branch = t.includes(" from a") ? refAt(Number(t.split(" from a")[1])) : null;   // start at the branch point
     const pts = (branch ? [branch] : []).concat(own).sort((a, b) => a.step - b.step);
     return { name: t, color: color(t), dash: t.startsWith("reference") ? "5 4" : null,
       points: own.length ? pts.map((r) => [r.step, r.fit_mu.B_star]) : [] };
