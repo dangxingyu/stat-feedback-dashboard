@@ -202,6 +202,39 @@ function renderTiles() {
     el("div", { class: "item", html: `<b>SOURCE_MISMATCH · ${m.id}</b> — ${m.text}` })));
 }
 
+// Section 11 result from the locked final-set scores (runs/campaign-v11/locked/analysis.json).
+function renderFinal() {
+  const host = document.getElementById("final-result");
+  const F = DATA.final;
+  if (!host || !F || !F.primary || F.primary.D == null) { if (host) host.replaceChildren(); return; }
+  const P = F.primary, A = [1000, 5000, 9000];
+  const sgn = (v) => (v == null ? "–" : (v > 0 ? "+" : "") + v.toFixed(5));
+  const fl = F.final_losses;
+  const t1 = el("table", {}, el("tr", {}, ["anchor", "√κ (BASE_SQRT)", "STAT_FEEDBACK", "Δₐ", "baseline penalty vs 128K", "Qₐ"].map((h, i) => el("th", { class: i ? "num" : "", text: h }))));
+  for (const a of A) {
+    t1.append(el("tr", {}, el("td", { text: fmtInt(a) }), el("td", { class: "num", text: fl[`BASE_SQRT|a${a}|k16`].toFixed(5) }),
+      el("td", { class: "num", text: fl[`STAT_FEEDBACK|a${a}|k16`].toFixed(5) }), el("td", { class: "num", text: sgn(P.delta[a]) }),
+      el("td", { class: "num", text: P.baseline_penalty[a].toFixed(5) }), el("td", { class: "num", text: P.Q[a].toFixed(5) })));
+  }
+  const rows = [["Stat alone − √κ", "STAT_vs_BASE_SQRT_k16"], ["Feedback alone − √κ", "FEEDBACK_vs_BASE_SQRT_k16"],
+    ["Stat × feedback − √κ (primary)", "STAT_FEEDBACK_vs_BASE_SQRT_k16"], [`Global scalar c = ${F.selected_c} − √κ`, "GLOBAL_SELECTED_vs_BASE_SQRT_k16"],
+    ["Stat × feedback − global scalar", "STAT_FEEDBACK_vs_GLOBAL_SELECTED_k16"], ["κ = 4: Stat × feedback − √κ", "STAT_FEEDBACK_vs_BASE_SQRT_k4"]];
+  const t2 = el("table", {}, el("tr", {}, ["paired difference (final set, step 13,000)", "a = 1,000", "a = 5,000", "a = 9,000", "mean"].map((h, i) => el("th", { class: i ? "num" : "", text: h }))));
+  for (const [label, key] of rows) {
+    const v = F.paired[key];
+    t2.append(el("tr", {}, el("td", { text: label }), ...A.map((a) => el("td", { class: "num", text: sgn(v.per_anchor[a]) })),
+      el("td", { class: "num" }, el("b", { text: sgn(v.mean) }))));
+  }
+  const d5 = [["random basis − Stat × feedback", "RANDOM_vs_STAT_FEEDBACK_a5000"], ["frozen basis − Stat × feedback", "FROZEN_vs_STAT_FEEDBACK_a5000"],
+    ["rank 64 − rank 16", "RANK64_vs_STAT_FEEDBACK_a5000"], ["legacy held-16 − fully scaled", "LEGACY_HELD16_vs_FULLY_SCALED_a5000"]]
+    .map(([l, k]) => `${l} ${sgn(F.paired[k].mean)}`).join(" · ");
+  host.replaceChildren(el("div", { class: "card" },
+    el("h3", { text: `Final result (protocol ${F.protocol}, locked; single seed, final set at step 13,000)` }),
+    el("p", { class: "caption", text: `D = ${sgn(P.D)} nats/token (${P.verdict_mean}; threshold 0.002). All three anchors improve: ${P.all_anchors_improve ? "yes" : "no"}. Baseline penalty P = ${P.P.toFixed(4)}; removal ratio −D/P = ${(100 * P.removal_ratio).toFixed(1)}%. B₀ (128K reference at 13,000) = ${F.reference_final.toFixed(5)}.` }),
+    el("div", { class: "scroll" }, t1), el("div", { class: "scroll", style: "margin-top:10px" }, t2),
+    el("p", { class: "caption", text: `Diagnostics at a = 5,000: ${d5}. Reading (protocol §13): early gains (−0.009 to −0.019 at a+1024) shrink to ≈ −0.001 at the endpoint; the combination beats √κ but not the global scalar, so the endpoint gain cannot be attributed to the directional model. Receipt: RESULTS.md.` })));
+}
+
 function renderFindings() {
   const items = [];
   const dev = DATA.dev;
@@ -231,7 +264,9 @@ function renderFindings() {
   if (DATA.protocol.locked) {
     const conf = DATA.runs.filter((r) => ["primary", "transfer", "diagnostic"].includes(r.phase) && r.method !== "BASE_SQRT");
     const done = conf.filter((r) => r.status === "done").length, running = conf.filter((r) => r.status === "running").length;
-    items.push(`Protocol v1.2 is locked (selected c = ${DATA.protocol.selected_c}); the confirmatory suite is running on H100: ${done} of ${conf.length} trajectories done, ${running} running. Final-set scores are computed only after every trajectory reaches step 13,000.`);
+    items.push(DATA.final && DATA.final.primary && DATA.final.primary.D != null
+      ? `Protocol v1.2 is locked (selected c = ${DATA.protocol.selected_c}); all ${conf.length} confirmatory trajectories are complete and scored on the final set (table above).`
+      : `Protocol v1.2 is locked (selected c = ${DATA.protocol.selected_c}); the confirmatory suite is running on H100: ${done} of ${conf.length} trajectories done, ${running} running. Final-set scores are computed only after every trajectory reaches step 13,000.`);
   } else {
     items.push("Confirmatory trajectories have not started: they wait for the protocol revision (see Engineering).");
   }
@@ -766,7 +801,7 @@ function renderEngineering() {
 
 function render() {
   renderEngineering();
-  renderStamp(); renderTiles(); renderFindings(); renderMatrix(); renderCurves(); renderDev(); renderCalibration(); renderChecks(); renderProtocol();
+  renderStamp(); renderTiles(); renderFinal(); renderFindings(); renderMatrix(); renderCurves(); renderDev(); renderCalibration(); renderChecks(); renderProtocol();
   document.getElementById("foot").textContent =
     "Generated from the run directories by dashboard/export.py. Numbers are single-seed and provisional until the protocol lock.";
 }
