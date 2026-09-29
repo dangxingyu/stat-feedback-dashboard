@@ -649,13 +649,35 @@ function renderHybrids() {
       el("td", { class: "num", text: r.mu1 != null ? r.mu1.toFixed(2) : "–" })));
   }
   host.replaceChildren(el("div", { class: "card" }, el("h3", { text: "Parameters or optimizer state? Hybrid states" }),
-    el("p", { class: "caption", text: "Each hybrid takes the parameters of one state and the Muon momentum buffer m of the other (bold). B* follows m: the 2M-trained buffer alone reproduces the rise, the 128K buffer removes it. The basis also changes with m, since P depends on it." }),
+    el("p", { class: "caption", text: "Each hybrid takes the parameters of one state and the Muon momentum buffer m of the other (bold); scaled rows multiply the state's own m. B* follows m: the 2M-trained buffer alone reproduces the rise, the 128K buffer removes it, and shrinking the 128K buffer's size alone raises B* roughly as 1/|m|. The basis also changes with m, since P depends on it." }),
     el("div", { class: "scroll" }, table)));
+}
+
+// B* against the size of the momentum buffer (own m scaled; log-log), per 128K state.
+function renderMomentumScale() {
+  const host = document.getElementById("eng-mscale");
+  if (!host) return;
+  host.replaceChildren();
+  const scans = (DATA.batch_scans || []).filter((r) => r.params_from === "reference 128K" && r.momentum_scale != null);
+  const states = [[11000, 1000, "--s1"], [5000, 5000, "--s3"]];
+  const series = states.map(([step, anchor, c]) => ({ name: `128K state @ ${fmtInt(step)}`, color: css(c),
+    points: scans.filter((r) => r.step === step && r.anchor === anchor).sort((a, b) => a.momentum_scale - b.momentum_scale)
+      .map((r) => [Math.log2(r.momentum_scale), Math.log2(r.fit_mu.B_star)]) })).filter((x) => x.points.length > 1);
+  if (!series.length) return;
+  // Reference slope -1 (B* proportional to 1/|m|) through the step-11,000 point at scale 1.
+  const anchorPt = series[0].points.find((p) => p[0] === 0);
+  if (anchorPt) series.push({ name: "slope −1 (B* ∝ 1/|m|)", color: css("--muted"), dash: "3 4",
+    points: [[-3.4, anchorPt[1] + 3.4], [1.1, anchorPt[1] - 1.1]] });
+  lineChart(host, { title: "Noise scale B* vs size of the momentum buffer (log–log)", series, markers: true,
+    xDomain: [-3.5, 1.2], xTicks: [-3, -2, -1, 0, 1], xFormat: (t) => `${(2 ** t).toFixed(t < 0 ? 3 : 0).replace(/0+$/, "").replace(/\.$/, "")}×`,
+    xName: "m scale", xLabel: "scale applied to the state's own momentum buffer m", yLabel: "B* (base batches, log scale)",
+    yFormat: (v) => (2 ** v).toFixed(v < 2 ? 1 : 0), valueFormat: (v) => `${(2 ** v).toFixed(2)} B0`, forceLegend: true });
 }
 
 function renderEngineering() {
   renderBatchScans();
   renderHybrids();
+  renderMomentumScale();
   const runs = (DATA.dry_runs || []).filter((r) => r.rho && r.rho_validation);
   const host = document.getElementById("eng-rayleigh");
   host.replaceChildren();
