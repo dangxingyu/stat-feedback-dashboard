@@ -381,7 +381,69 @@ function renderDev() {
   document.getElementById("dev-table").replaceChildren(el("div", { class: "scroll", style: "margin-top:12px" }, table));
 }
 
+// Gate outcome of every trajectory calibration point under each candidate rule variant.
+const VARIANTS = [
+  ["inline", "v1.1 as written", "inline during the 2M runs"],
+  ["v1.2-proposal", "v1.2 candidate", "8-batch pools, held-out V, per-vector held-out residual ≤ 0.25, pooled local check"],
+  ["v1.2-proposal-spiketrim", "+ spike trim", "option (b): drop sequences that own a top mode"],
+  ["v1.2-proposal-cand4r", "+ 4r candidates", "replicate filter over 4r Ritz modes"],
+  ["v1.2-proposal-hres0.4", "residual ≤ 0.40", "per-vector held-out residual ≤ 0.40, pooled local check"],
+  ["v1.2-proposal-hres0.4-local_per_batch", "rc2", "per-vector held-out residual ≤ 0.40, local check per B0 batch (averaged)"],
+];
+
+function gateCell(c) {
+  if (!c) return el("td", { class: "gate empty", text: "·" });
+  const part = (label, ok) => el("span", { class: "gate-part" },
+    el("span", { class: "dot", style: `background:var(${ok == null ? "--muted" : ok ? "--good" : "--critical"})` }),
+    el("span", { text: label + (ok == null ? "–" : ok ? "✓" : "✗") }));
+  const td = el("td", { class: "gate" },
+    part("B", c.basis_valid), part("S", c.basis_valid ? c.stat_accepted : null),
+    part("F", c.basis_valid ? c.feedback_valid : null),
+    el("span", { class: "gate-num", text: c.local_max_error != null ? c.local_max_error.toFixed(2) : "" }));
+  td.addEventListener("mousemove", (evt) => showTip(evt,
+    `<b>step ${fmtInt(c.step)}</b> · ${c.protocol}${c.device ? " · " + c.device : ""}<br/>` +
+    `basis: ${c.basis_valid ? "valid" : "invalid (" + (c.basis_reason || "–") + ")"}` +
+    (c.validation_residual_max != null ? `, max held-out residual ${c.validation_residual_max.toFixed(3)}` : "") + "<br/>" +
+    `Stat: ${c.stat_accepted == null ? "–" : c.stat_accepted ? "accepted" : c.stat_reason}<br/>` +
+    `local check (${c.local_mode || "pooled"}): ${c.local_max_error != null ? c.local_max_error.toFixed(3) : "–"}` +
+    (c.KB_K0_relative != null ? `<br/>‖K_B − K0‖/‖K0‖ = ${c.KB_K0_relative.toFixed(2)}` : "")));
+  td.addEventListener("mouseleave", hideTip);
+  return td;
+}
+
+function renderGateMatrix() {
+  const host = document.getElementById("gate-matrix");
+  const points = new Map();
+  for (const r of DATA.runs) {
+    if (r.method !== "BASE_SQRT") continue;
+    for (const c of r.calibrations || []) {
+      const key = `${r.run_id}|${c.index}`;
+      if (!points.has(key)) points.set(key, { run: r, index: c.index, step: c.step, cells: {} });
+      points.get(key).cells[c.protocol] = c;
+    }
+  }
+  const present = VARIANTS.filter(([k]) => [...points.values()].some((p) => p.cells[k]));
+  if (!present.length) { host.replaceChildren(); return; }
+  const rows = [...points.values()].sort((a, b) => b.run.kappa - a.run.kappa || a.run.anchor - b.run.anchor || a.index - b.index);
+  const table = el("table", { class: "gates" }, el("tr", {}, el("th", { text: "calibration point" }),
+    present.map(([, label, hint]) => el("th", { text: label, title: hint }))));
+  for (const p of rows) {
+    table.append(el("tr", {}, el("td", { text: `κ${p.run.kappa} · a${p.run.anchor} · c${p.index} · step ${fmtInt(p.step)}` }),
+      present.map(([k]) => gateCell(p.cells[k]))));
+  }
+  const all = (c) => c && c.basis_valid && c.stat_accepted && c.feedback_valid;
+  table.append(el("tr", { class: "total" }, el("td", { text: "all three gates pass" }), present.map(([k]) => {
+    const cells = rows.map((p) => p.cells[k]).filter(Boolean);
+    return el("td", { class: "gate", text: `${cells.filter(all).length} / ${cells.length}` });
+  })));
+  host.replaceChildren(el("div", { class: "card" }, el("h3", { text: "Gate outcome per calibration point and rule variant" }),
+    el("p", { class: "caption", text: "Deferred diagnostics on the BASE_SQRT (diagnostics-only) trajectories: each cell reruns the calibration at the saved state under one rule. B = basis (§6.2), S = Stat accepted (§6.4), F = feedback local check ≤ 0.5 (§7); the number is the local-check max error. Hover for details. Columns are rules, not methods; no loss enters this table." }),
+    el("div", { class: "scroll" }, table),
+    el("p", { class: "caption", text: present.map(([, label, hint]) => `${label}: ${hint}`).join(" · ") })));
+}
+
 function renderCalibration() {
+  renderGateMatrix();
   const rows = DATA.runs.flatMap((r) => (r.calibrations || []).map((c) => ({ ...c, method: r.method, anchor: r.anchor, kappa: r.kappa })))
     .concat((DATA.dry_runs || []).map((c) => ({ ...c, method: `dry run · ${c.method || ""}` })));
   const host = document.getElementById("cal-chart");
