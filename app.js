@@ -632,7 +632,8 @@ function renderHybrids() {
   const host = document.getElementById("eng-hybrid");
   if (!host) return;
   const scans = DATA.batch_scans || [];
-  const mOf = (r) => r.momentum_from ? (r.momentum_from.includes("muon-s1-parent") ? "128K" : "2M")
+  const mOf = (r) => r.momentum_from ? (r.momentum_from.startsWith("own x") ? `own m × ${r.momentum_from.slice(6)} (scaled)`
+    : r.momentum_from.includes("muon-s1-parent") ? "128K" : "2M")
     : r.params_from === "reference 128K" ? "128K" : r.params_from;
   const pOf = (r) => r.params_from === "reference 128K" ? "128K" : r.params_from;
   const rows = scans.filter((r) => r.anchor === 1000 && [7000, 11000].some((st) => Math.abs(r.step - st) <= 300)
@@ -643,7 +644,7 @@ function renderHybrids() {
   for (const r of rows) {
     const hybrid = r.trajectory === "hybrid";
     table.append(el("tr", {}, el("td", { text: fmtInt(r.step) }), el("td", { text: `${pOf(r)} training` }),
-      el("td", {}, el("b", { text: hybrid ? `${mOf(r)} training` : "" }), el("span", { text: hybrid ? "" : `${mOf(r)} training (same state)` })),
+      el("td", {}, el("b", { text: hybrid ? (mOf(r).startsWith("own") ? mOf(r) : `${mOf(r)} training`) : "" }), el("span", { text: hybrid ? "" : `${mOf(r)} training (same state)` })),
       el("td", { class: "num", text: r.fit_mu.B_star.toFixed(2) }),
       el("td", { class: "num", text: r.mu1 != null ? r.mu1.toFixed(2) : "–" })));
   }
