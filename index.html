@@ -80,6 +80,14 @@
         on the construction batch (solid) and on independent tokens (dashed). With one 131K-token batch
         the held-out curvature at anchor 5,000 falls to 43%; pooling 8 batches (1M tokens) keeps 98%.</p>
       <div class="grid2" id="eng-rayleigh"></div>
+      <h2>How the sharp-subspace response scales with batch size</h2>
+      <p class="caption">From <code>stat_feedback.batch_scan</code>: at a saved state, the projected Muon
+        direction U<sup>T</sup>D(m, ḡ<sub>b</sub>) is measured at the mean gradient of b base batches
+        (b = 1 … 128, disjoint blocks of the calibration's own probe batches). Its mean grows with b and
+        saturates because the polar map normalizes the whole update. The fit |μ<sub>b</sub>| ∝ (1 + B*/b)<sup>−1/2</sup>
+        gives a noise scale B* for the sharp subspace. Dashed lines are states of the 128K reference run;
+        solid lines are states after training at 2M. Engineering measurement; no loss is involved.</p>
+      <div class="grid2" id="eng-batch"></div>
       <h2>Calibration outcomes per study</h2>
       <div id="eng-table"></div>
       <h2>Bitwise reproducibility of training</h2>

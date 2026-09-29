@@ -99,7 +99,7 @@ function lineChart(host, opts) {
     grid.append(el("svg:text", { x: m.l - 6, y: y(t) + 3.5, "text-anchor": "end", text: opts.yFormat ? opts.yFormat(t) : t }));
   }
   for (const t of opts.xTicks || niceTicks(xd[0], xd[1], 6)) {
-    grid.append(el("svg:text", { x: x(t), y: H - m.b + 16, "text-anchor": "middle", text: fmtInt(t) }));
+    grid.append(el("svg:text", { x: x(t), y: H - m.b + 16, "text-anchor": "middle", text: opts.xFormat ? opts.xFormat(t) : fmtInt(t) }));
   }
   grid.append(el("svg:line", { class: "axis", x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, stroke: css("--axis") }));
   grid.append(el("svg:text", { x: (m.l + W - m.r) / 2, y: H - 4, "text-anchor": "middle", text: opts.xLabel || "" }));
@@ -122,7 +122,9 @@ function lineChart(host, opts) {
     const d = s.points.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
     svg.append(el("svg:path", { d, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round",
       "stroke-linecap": "round", "stroke-dasharray": s.dash || null }));
-    if (s.points.length === 1) svg.append(el("svg:circle", { cx: x(s.points[0][0]), cy: y(s.points[0][1]), r: 4, fill: s.color }));
+    if (s.points.length === 1 || opts.markers) {
+      for (const p of s.points) svg.append(el("svg:circle", { cx: x(p[0]), cy: y(p[1]), r: 4, fill: s.color, stroke: css("--surface"), "stroke-width": 2 }));
+    }
   }
   // Crosshair + tooltip: nearest x across all series.
   const cross = el("svg:line", { y1: m.t, y2: H - m.b, stroke: css("--muted"), "stroke-width": 1, visibility: "hidden" });
@@ -144,14 +146,14 @@ function lineChart(host, opts) {
       dots[i].setAttribute("cy", y(best[1]));
       dots[i].setAttribute("visibility", "visible");
       rows.push(`<div class="row"><span class="sw" style="background:${s.color}"></span>${s.name}: <b>${
-        opts.valueFormat ? opts.valueFormat(best[1]) : fmt(best[1])}</b> <span style="color:var(--muted)">@ ${fmtInt(best[0])}</span></div>`);
+        opts.valueFormat ? opts.valueFormat(best[1]) : fmt(best[1])}</b> <span style="color:var(--muted)">@ ${opts.xFormat ? opts.xFormat(best[0]) : fmtInt(best[0])}</span></div>`);
     });
     if (snapX !== null) {
       cross.setAttribute("x1", x(snapX));
       cross.setAttribute("x2", x(snapX));
       cross.setAttribute("visibility", "visible");
     }
-    showTip(evt, `<div style="margin-bottom:4px;color:var(--ink-2)">step ≈ ${fmtInt(xv)}</div>${rows.join("")}`);
+    showTip(evt, `<div style="margin-bottom:4px;color:var(--ink-2)">${opts.xName || "step"} ≈ ${opts.xFormat ? opts.xFormat(snapX ?? xv) : fmtInt(xv)}</div>${rows.join("")}`);
   });
   hit.addEventListener("mouseleave", () => {
     hideTip();
@@ -591,7 +593,47 @@ function renderProtocol() {
   <p>Protocol SHA-256 <code>${DATA.protocol.sha256}</code>, run matrix <code>${DATA.protocol.run_matrix_sha256.slice(0, 16)}…</code>.</p>`;
 }
 
+// Sharp-subspace response and Jacobian vs batch size (stat_feedback.batch_scan).
+function renderBatchScans() {
+  const host = document.getElementById("eng-batch");
+  if (!host) return;
+  host.replaceChildren();
+  const scans = DATA.batch_scans || [];
+  const order = ["reference 128K", "2M from a1000", "2M from a5000", "2M from a9000"];
+  const color = (t) => css(["--s1", "--s2", "--s3", "--s4"][Math.max(0, order.indexOf(t))]);
+  const refAt = (step) => scans.find((r) => r.trajectory.startsWith("reference") && r.step === step);
+  const byTraj = order.map((t) => {
+    const own = scans.filter((r) => r.trajectory === t);
+    const branch = t.startsWith("2M") ? refAt(Number(t.split("a")[1])) : null;   // start at the branch point
+    const pts = (branch ? [branch] : []).concat(own).sort((a, b) => a.step - b.step);
+    return { name: t, color: color(t), dash: t.startsWith("reference") ? "5 4" : null,
+      points: own.length ? pts.map((r) => [r.step, r.fit_mu.B_star]) : [] };
+  }).filter((s) => s.points.length);
+  lineChart(host, { title: "Noise scale B* of the sharp response (units of B0 = 131K tokens)", series: byTraj,
+    xDomain: [0, 13000], xTicks: [1000, 3000, 5000, 7000, 9000, 11000], xLabel: "reference step of the state",
+    yLabel: "B* (base batches)", yDomain: [0, 17], markers: true, forceLegend: true, valueFormat: (v) => `${v.toFixed(1)} B0 (${(v * 0.131).toFixed(2)}M tokens)`,
+    yFormat: (v) => v.toFixed(0), marks: [], hLines: [{ y: 16, label: "κ = 16 (2M)" }] });
+  // Paired curves at matched steps: reference state (dashed) vs 2M-trained state (solid).
+  const pick = scans.filter((r) => r.anchor === 1000 || r.trajectory.startsWith("reference"));
+  const steps = [...new Set(pick.map((r) => Math.round(r.step / 1000) * 1000))].sort((a, b) => a - b);
+  // Step is a magnitude: one hue, light (early) to dark (late).
+  const shade = (i) => `color-mix(in oklab, ${css("--s1")} ${Math.round(50 + 50 * i / Math.max(1, steps.length - 1))}%, ${css("--surface")})`;
+  const curves = [];
+  steps.forEach((st, i) => {
+    for (const r of pick.filter((q) => Math.round(q.step / 1000) * 1000 === st)) {
+      curves.push({ name: `${r.trajectory.startsWith("reference") ? "128K state" : "2M state"} @ ${fmtInt(r.step)}`,
+        color: shade(i), dash: r.trajectory.startsWith("reference") ? "5 4" : null,
+        points: r.curve.map((p) => [Math.log2(p[0]), p[1]]) });
+    }
+  });
+  lineChart(host, { title: "Mean sharp response |μ_b| / |μ_1| vs batch size", series: curves,
+    xDomain: [0, 7], xTicks: [0, 1, 2, 3, 4, 5, 6, 7], xFormat: (t) => `${2 ** Math.round(t)}`, xName: "b",
+    xLabel: "batch b (base batches of 131K tokens, log scale)", yLabel: "|μ_b| / |μ_1|", forceLegend: true,
+    valueFormat: (v) => `${v.toFixed(2)}×`, yFormat: (v) => v.toFixed(1), marks: [] });
+}
+
 function renderEngineering() {
+  renderBatchScans();
   const runs = (DATA.dry_runs || []).filter((r) => r.rho && r.rho_validation);
   const host = document.getElementById("eng-rayleigh");
   host.replaceChildren();
