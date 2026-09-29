@@ -178,7 +178,9 @@ let DATA = null;
 function renderStamp() {
   const t = new Date(DATA.generated_at * 1000);
   const stamp = document.getElementById("stamp");
-  stamp.innerHTML = `Updated <b>${t.toLocaleString()}</b><br/>Protocol v1.1 · <code>${DATA.protocol.sha256.slice(0, 12)}</code>`;
+  const P = DATA.protocol;
+  stamp.innerHTML = `Updated <b>${t.toLocaleString()}</b><br/>Protocol ${P.version} · <code>${P.sha256.slice(0, 12)}</code>` +
+    (P.locked ? `<br/>Locked · c = ${P.selected_c} · lock <code>${(P.lock_sha256 || "").slice(0, 12)}</code>` : "");
 }
 
 function renderTiles() {
@@ -226,7 +228,13 @@ function renderFindings() {
     const accepted = dry.filter((r) => r.stat_accepted);
     if (accepted.length) items.push(`The Stat operator is accepted in every engineering calibration that reached it (${accepted.length}); its eigenvalues lie between √κ = 4 and κ = 16, i.e. sharp directions want more than √κ movement.`);
   }
-  items.push("Confirmatory trajectories have not started: they wait for the protocol revision (see Engineering).");
+  if (DATA.protocol.locked) {
+    const conf = DATA.runs.filter((r) => ["primary", "transfer", "diagnostic"].includes(r.phase) && r.method !== "BASE_SQRT");
+    const done = conf.filter((r) => r.status === "done").length, running = conf.filter((r) => r.status === "running").length;
+    items.push(`Protocol v1.2 is locked (selected c = ${DATA.protocol.selected_c}); the confirmatory suite is running on H100: ${done} of ${conf.length} trajectories done, ${running} running. Final-set scores are computed only after every trajectory reaches step 13,000.`);
+  } else {
+    items.push("Confirmatory trajectories have not started: they wait for the protocol revision (see Engineering).");
+  }
   document.getElementById("findings").replaceChildren(...items.map((s) => el("li", { text: s })));
 }
 
@@ -391,6 +399,7 @@ const VARIANTS = [
   ["v1.2-proposal-cand4r", "+ 4r candidates", "replicate filter over 4r Ritz modes"],
   ["v1.2-proposal-hres0.4", "residual ≤ 0.40", "per-vector held-out residual ≤ 0.40, pooled local check"],
   ["v1.2-proposal-hres0.4-local_per_batch", "rc2", "per-vector held-out residual ≤ 0.40, local check per B0 batch (averaged)"],
+  ["v1.2", "v1.2 (locked)", "the approved protocol, run with the locked code (deferred diagnostics on H200)"],
   ["v1.2-proposal-hres0.4-local_per_batch-h100", "rc2 · H100 repeat", "rc2 rerun on H100 where the rc2 column ran on H200 (hardware sensitivity)"],
   ["v1.2-proposal-hres0.4-local_per_batch-ggn_tf32", "rc2 · TF32 GGN", "rc2 with TF32 matmuls in the GGN products only (Muon map and JVP stay FP32)"],
   ["v1.2-proposal-hres0.4-local_per_batch-rank64", "rc2 · rank 64", "RANK64 diagnostic arm: rc2 at rank 64 (512 Lanczos products)"],
@@ -586,11 +595,18 @@ function renderProtocol() {
   onto κ times the small-batch ones; it is accepted only if it beats √κ·I on held-out probe groups.
   <b>T (feedback)</b> sums the κ-step affine recursion R ← (I − η<sub>j</sub>K₀)R + η<sub>j</sub>I, falling back to I when
   ‖T‖ &gt; 2 or the update norm exceeds 2√κ‖u<sub>B</sub>‖.</p>
+  <h2>Calibration gates (v1.2)</h2>
+  <p>Geometry from an 8-batch construction pool (1M tokens), validated on an independent 8-batch pool. U takes the first 16
+  replicable modes among the top 32 (construction residual ≤ 0.01, held-out residual ≤ 0.40, held-out Rayleigh ≥ ½ of
+  construction); the subspace must keep ≥ 80% of its Rayleigh quotient on held-out tokens. V = n·G<sub>val</sub>U on the
+  validation pool. The feedback local check averages per-B0-batch responses over an 8-batch pool (error ≤ 0.5 at ±δ, ±4δ).
+  Changes from v1.1 and their evidence: <code>protocol/v1.2-proposal/</code>.</p>
   <h2>Analysis</h2>
   <p>Single reference trajectory; the three anchors are stages, not replicates. The primary estimand is the equal-weight mean of
   Δ<sub>a</sub> = L(Stat × feedback) − L(√κ) at κ = 16, with 0.002 nats/token as the preset practical threshold. No p-values or
   seed intervals are computed. The final set is scored only after the scalar sweep is locked.</p>
-  <p>Protocol SHA-256 <code>${DATA.protocol.sha256}</code>, run matrix <code>${DATA.protocol.run_matrix_sha256.slice(0, 16)}…</code>.</p>`;
+  <p>Protocol ${DATA.protocol.version} SHA-256 <code>${DATA.protocol.sha256}</code>, run matrix <code>${DATA.protocol.run_matrix_sha256.slice(0, 16)}…</code>` +
+  (DATA.protocol.locked ? `; lock receipt <code>${DATA.protocol.lock_sha256}</code>, selected c = ${DATA.protocol.selected_c}, code digest <code>${(DATA.protocol.code_source_digest || "").slice(0, 16)}…</code>.` : ".") + `</p>`;
 }
 
 // Sharp-subspace response and Jacobian vs batch size (stat_feedback.batch_scan).
