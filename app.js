@@ -653,30 +653,35 @@ function renderHybrids() {
     el("div", { class: "scroll" }, table)));
 }
 
-// B* against the size of the momentum buffer (own m scaled; log-log), per 128K state.
+// B* against the absolute size of the momentum buffer |c m| (log-log): each state's own m scaled.
 function renderMomentumScale() {
   const host = document.getElementById("eng-mscale");
   if (!host) return;
   host.replaceChildren();
+  const norms = DATA.momentum_norms || {};
   const scans = (DATA.batch_scans || []).filter((r) => r.momentum_scale != null);
-  const states = [[11000, 1000, "--s1", "reference 128K", "128K"], [5000, 5000, "--s3", "reference 128K", "128K"],
-    [11240, 1000, "--s2", "2M", "2M"]];
-  const series = states.map(([step, anchor, c, params, label]) => ({ name: `${label} state @ ${fmtInt(step)}`, color: css(c), markers: true,
-    points: scans.filter((r) => r.step === step && r.anchor === anchor && r.params_from === params).sort((a, b) => a.momentum_scale - b.momentum_scale)
-      .map((r) => [Math.log2(r.momentum_scale), Math.log2(r.fit_mu.B_star)]) })).filter((x) => x.points.length > 1);
-  if (!series.length) return;
-  // Fitted crossover B* = B_g / (1 + (c/c0)^p), dashed, per state.
-  for (const f of DATA.momentum_fits || []) {
-    const base = series.find((x) => x.name === `${f.params === "2M" ? "2M" : "128K"} state @ ${fmtInt(f.step)}`);
-    if (!base) continue;
-    const pts = [];
-    for (let t = -3.4; t <= 2.5; t += 0.1) pts.push([t, Math.log2(f.B_g / (1 + (2 ** t / f.c0) ** f.p))]);
-    series.push({ name: `fit @ ${fmtInt(f.step)}: ${f.B_g.toFixed(1)} / (1 + (c/${f.c0.toFixed(2)})^${f.p.toFixed(1)})`,
-      color: base.color, dash: "3 4", points: pts });
+  const states = [[11000, 1000, "--s1", "reference 128K", "128K", "reference 128K@11000"],
+    [5000, 5000, "--s3", "reference 128K", "128K", "reference 128K@5000"],
+    [11240, 1000, "--s2", "2M", "2M", "2M@11240"]];
+  const series = [];
+  for (const [step, anchor, c, params, label, key] of states) {
+    const norm = norms[key];
+    if (!norm) continue;
+    const pts = scans.filter((r) => r.step === step && r.anchor === anchor && r.params_from === params)
+      .sort((a, b) => a.momentum_scale - b.momentum_scale).map((r) => [Math.log10(r.momentum_scale * norm), Math.log2(r.fit_mu.B_star)]);
+    if (pts.length < 2) continue;
+    series.push({ name: `${label} state @ ${fmtInt(step)} (own |m| = ${fmtInt(norm)})`, color: css(c), markers: true, points: pts });
+    const f = (DATA.momentum_fits || []).find((q) => q.step === step && q.anchor === anchor);
+    if (f) {
+      const fit = [];
+      for (let t = 1.3; t <= 4.2; t += 0.05) fit.push([t, Math.log2(f.B_g / (1 + (10 ** t / (f.c0 * norm)) ** f.p))]);
+      series.push({ name: `fit: B_g ${f.B_g.toFixed(1)}, half-point |m| = ${fmtInt(f.c0 * norm)}, p ${f.p.toFixed(1)}`, color: css(c), dash: "3 4", markers: false, points: fit });
+    }
   }
-  lineChart(host, { title: "Noise scale B* vs size of the momentum buffer (log–log)", series,
-    xDomain: [-3.5, 2.6], xTicks: [-3, -2, -1, 0, 1, 2], xFormat: (t) => `${(2 ** t).toFixed(t < 0 ? 3 : 0).replace(/0+$/, "").replace(/\.$/, "")}×`,
-    xName: "m scale", xLabel: "scale applied to the state's own momentum buffer m", yLabel: "B* (base batches, log scale)",
+  if (!series.length) return;
+  lineChart(host, { title: "Noise scale B* vs absolute size of the momentum buffer (log–log)", series,
+    xDomain: [1.3, 4.2], xTicks: [2, 2.5, 3, 3.5, 4], xFormat: (t) => fmtInt(10 ** t), xName: "|m|",
+    xLabel: "|c·m|: Euclidean norm of the (scaled) Muon momentum buffer", yLabel: "B* (base batches, log scale)",
     yFormat: (v) => (2 ** v).toFixed(v < 2 ? 1 : 0), valueFormat: (v) => `${(2 ** v).toFixed(2)} B0`, forceLegend: true });
 }
 
