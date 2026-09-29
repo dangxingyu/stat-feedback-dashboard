@@ -414,11 +414,13 @@ function renderCalibration() {
   svg.append(el("svg:text", { x: 12, y: H / 2, transform: `rotate(-90 12 ${H / 2})`, "text-anchor": "middle", text: "S eigenvalue (log scale)" }));
   host.append(el("div", { class: "card" }, el("h3", { text: "Stat operator spectrum per calibration" }),
     el("div", { class: "legend" }, el("span", { text: "○ before clipping   ● after clipping to [¼, κ]" })), el("div", { class: "scroll" }, svg)));
-  const head = ["run", "step", "basis", "Lanczos", "max residual", "val. residual", "precision", "Stat", "local check", "‖T‖", "time"];
-  const table = el("table", {}, el("tr", {}, head.map((h, i) => el("th", { class: i > 2 ? "num" : "", text: h }))));
+  const head = ["run", "protocol", "step", "basis", "Lanczos", "max residual", "val. residual", "precision", "Stat", "local check", "‖T‖", "time"];
+  const table = el("table", {}, el("tr", {}, head.map((h, i) => el("th", { class: i > 3 ? "num" : "", text: h }))));
   for (const r of rows) {
     table.append(el("tr", {},
-      el("td", { text: r.run_id || r.method }), el("td", { text: fmtInt(r.step) }),
+      el("td", { text: r.run_id || r.method }),
+      el("td", { text: r.protocol ? (r.protocol === "inline" ? "v1.1" : r.protocol.replace("-proposal", " candidate")) : "dry run" }),
+      el("td", { text: fmtInt(r.step) }),
       el("td", {}, statusBadge(r.basis_valid ? "pass" : "fail"), el("small", { text: r.basis_reason ? ` ${r.basis_reason}` : "" })),
       el("td", { class: "num", text: r.lanczos_products ?? "–" }),
       el("td", { class: "num", text: r.residual_max != null ? r.residual_max.toExponential(1) : "–" }),
