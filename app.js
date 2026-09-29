@@ -658,23 +658,24 @@ function renderMomentumScale() {
   const host = document.getElementById("eng-mscale");
   if (!host) return;
   host.replaceChildren();
-  const scans = (DATA.batch_scans || []).filter((r) => r.params_from === "reference 128K" && r.momentum_scale != null);
-  const states = [[11000, 1000, "--s1"], [5000, 5000, "--s3"]];
-  const series = states.map(([step, anchor, c]) => ({ name: `128K state @ ${fmtInt(step)}`, color: css(c), markers: true,
-    points: scans.filter((r) => r.step === step && r.anchor === anchor).sort((a, b) => a.momentum_scale - b.momentum_scale)
+  const scans = (DATA.batch_scans || []).filter((r) => r.momentum_scale != null);
+  const states = [[11000, 1000, "--s1", "reference 128K", "128K"], [5000, 5000, "--s3", "reference 128K", "128K"],
+    [11240, 1000, "--s2", "2M", "2M"]];
+  const series = states.map(([step, anchor, c, params, label]) => ({ name: `${label} state @ ${fmtInt(step)}`, color: css(c), markers: true,
+    points: scans.filter((r) => r.step === step && r.anchor === anchor && r.params_from === params).sort((a, b) => a.momentum_scale - b.momentum_scale)
       .map((r) => [Math.log2(r.momentum_scale), Math.log2(r.fit_mu.B_star)]) })).filter((x) => x.points.length > 1);
   if (!series.length) return;
   // Fitted crossover B* = B_g / (1 + (c/c0)^p), dashed, per state.
   for (const f of DATA.momentum_fits || []) {
-    const base = series.find((x) => x.name === `128K state @ ${fmtInt(f.step)}`);
+    const base = series.find((x) => x.name === `${f.params === "2M" ? "2M" : "128K"} state @ ${fmtInt(f.step)}`);
     if (!base) continue;
     const pts = [];
-    for (let t = -3.4; t <= 1.1; t += 0.1) pts.push([t, Math.log2(f.B_g / (1 + (2 ** t / f.c0) ** f.p))]);
+    for (let t = -3.4; t <= 2.5; t += 0.1) pts.push([t, Math.log2(f.B_g / (1 + (2 ** t / f.c0) ** f.p))]);
     series.push({ name: `fit @ ${fmtInt(f.step)}: ${f.B_g.toFixed(1)} / (1 + (c/${f.c0.toFixed(2)})^${f.p.toFixed(1)})`,
       color: base.color, dash: "3 4", points: pts });
   }
   lineChart(host, { title: "Noise scale B* vs size of the momentum buffer (log–log)", series,
-    xDomain: [-3.5, 1.2], xTicks: [-3, -2, -1, 0, 1], xFormat: (t) => `${(2 ** t).toFixed(t < 0 ? 3 : 0).replace(/0+$/, "").replace(/\.$/, "")}×`,
+    xDomain: [-3.5, 2.6], xTicks: [-3, -2, -1, 0, 1, 2], xFormat: (t) => `${(2 ** t).toFixed(t < 0 ? 3 : 0).replace(/0+$/, "").replace(/\.$/, "")}×`,
     xName: "m scale", xLabel: "scale applied to the state's own momentum buffer m", yLabel: "B* (base batches, log scale)",
     yFormat: (v) => (2 ** v).toFixed(v < 2 ? 1 : 0), valueFormat: (v) => `${(2 ** v).toFixed(2)} B0`, forceLegend: true });
 }
