@@ -122,7 +122,7 @@ function lineChart(host, opts) {
     const d = s.points.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
     svg.append(el("svg:path", { d, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round",
       "stroke-linecap": "round", "stroke-dasharray": s.dash || null }));
-    if (s.points.length === 1 || opts.markers) {
+    if (s.points.length === 1 || (opts.markers && s.markers !== false) || s.markers) {
       for (const p of s.points) svg.append(el("svg:circle", { cx: x(p[0]), cy: y(p[1]), r: 4, fill: s.color, stroke: css("--surface"), "stroke-width": 2 }));
     }
   }
@@ -660,15 +660,20 @@ function renderMomentumScale() {
   host.replaceChildren();
   const scans = (DATA.batch_scans || []).filter((r) => r.params_from === "reference 128K" && r.momentum_scale != null);
   const states = [[11000, 1000, "--s1"], [5000, 5000, "--s3"]];
-  const series = states.map(([step, anchor, c]) => ({ name: `128K state @ ${fmtInt(step)}`, color: css(c),
+  const series = states.map(([step, anchor, c]) => ({ name: `128K state @ ${fmtInt(step)}`, color: css(c), markers: true,
     points: scans.filter((r) => r.step === step && r.anchor === anchor).sort((a, b) => a.momentum_scale - b.momentum_scale)
       .map((r) => [Math.log2(r.momentum_scale), Math.log2(r.fit_mu.B_star)]) })).filter((x) => x.points.length > 1);
   if (!series.length) return;
-  // Reference slope -1 (B* proportional to 1/|m|) through the step-11,000 point at scale 1.
-  const anchorPt = series[0].points.find((p) => p[0] === 0);
-  if (anchorPt) series.push({ name: "slope −1 (B* ∝ 1/|m|)", color: css("--muted"), dash: "3 4",
-    points: [[-3.4, anchorPt[1] + 3.4], [1.1, anchorPt[1] - 1.1]] });
-  lineChart(host, { title: "Noise scale B* vs size of the momentum buffer (log–log)", series, markers: true,
+  // Fitted crossover B* = B_g / (1 + (c/c0)^p), dashed, per state.
+  for (const f of DATA.momentum_fits || []) {
+    const base = series.find((x) => x.name === `128K state @ ${fmtInt(f.step)}`);
+    if (!base) continue;
+    const pts = [];
+    for (let t = -3.4; t <= 1.1; t += 0.1) pts.push([t, Math.log2(f.B_g / (1 + (2 ** t / f.c0) ** f.p))]);
+    series.push({ name: `fit @ ${fmtInt(f.step)}: ${f.B_g.toFixed(1)} / (1 + (c/${f.c0.toFixed(2)})^${f.p.toFixed(1)})`,
+      color: base.color, dash: "3 4", points: pts });
+  }
+  lineChart(host, { title: "Noise scale B* vs size of the momentum buffer (log–log)", series,
     xDomain: [-3.5, 1.2], xTicks: [-3, -2, -1, 0, 1], xFormat: (t) => `${(2 ** t).toFixed(t < 0 ? 3 : 0).replace(/0+$/, "").replace(/\.$/, "")}×`,
     xName: "m scale", xLabel: "scale applied to the state's own momentum buffer m", yLabel: "B* (base batches, log scale)",
     yFormat: (v) => (2 ** v).toFixed(v < 2 ? 1 : 0), valueFormat: (v) => `${(2 ** v).toFixed(2)} B0`, forceLegend: true });
