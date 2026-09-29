@@ -599,8 +599,8 @@ function renderBatchScans() {
   if (!host) return;
   host.replaceChildren();
   const scans = DATA.batch_scans || [];
-  const order = ["reference 128K", "2M from a1000", "2M from a5000", "2M from a9000", "512K from a1000"];
-  const color = (t) => css(["--s1", "--s2", "--s3", "--s4", "--s5"][Math.max(0, order.indexOf(t))]);
+  const order = ["reference 128K", "2M from a1000", "2M from a5000", "2M from a9000", "512K from a1000", "512K from a9000"];
+  const color = (t) => css(["--s1", "--s2", "--s3", "--s4", "--s5", "--s7"][Math.max(0, order.indexOf(t))]);
   const refAt = (step) => scans.find((r) => r.trajectory.startsWith("reference") && r.step === step);
   const byTraj = order.map((t) => {
     const own = scans.filter((r) => r.trajectory === t);
