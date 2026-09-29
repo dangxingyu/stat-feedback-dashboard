@@ -617,7 +617,7 @@ function renderBatchScans() {
   const batchOf = (r) => r.trajectory.startsWith("reference") ? "128K" : r.trajectory.split(" ")[0];
   const batchColor = { "128K": color("reference 128K"), "512K": color("512K from a1000"), "2M": color("2M from a1000") };
   const near = (r) => [7000, 11000].find((st) => Math.abs(r.step - st) <= 300);
-  const curves = scans.filter((r) => r.anchor === 1000 && near(r))
+  const curves = scans.filter((r) => r.anchor === 1000 && near(r) && r.trajectory !== "hybrid")
     .sort((a, b) => near(a) - near(b) || ["128K", "512K", "2M"].indexOf(batchOf(a)) - ["128K", "512K", "2M"].indexOf(batchOf(b)))
     .map((r) => ({ name: `${batchOf(r)} state · step ${fmtInt(r.step)}`, color: batchColor[batchOf(r)],
       dash: near(r) === 7000 ? "5 4" : null, points: r.curve.map((p) => [Math.log2(p[0]), p[1]]) }));
