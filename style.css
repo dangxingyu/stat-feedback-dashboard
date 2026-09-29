@@ -109,3 +109,4 @@ table.gates .gate-part { display: inline-flex; align-items: center; gap: 3px; ma
 table.gates .gate-part .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 table.gates .gate-num { color: var(--ink-2); font-size: 12px; }
 table.gates tr.total td { font-weight: 600; border-top: 1px solid var(--ring); }
+.legend .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; vertical-align: middle; margin-right: 2px; }

@@ -389,6 +389,10 @@ const VARIANTS = [
   ["v1.2-proposal-cand4r", "+ 4r candidates", "replicate filter over 4r Ritz modes"],
   ["v1.2-proposal-hres0.4", "residual ≤ 0.40", "per-vector held-out residual ≤ 0.40, pooled local check"],
   ["v1.2-proposal-hres0.4-local_per_batch", "rc2", "per-vector held-out residual ≤ 0.40, local check per B0 batch (averaged)"],
+  ["v1.2-proposal-hres0.4-local_per_batch-h100", "rc2 · H100 repeat", "rc2 rerun on H100 where the rc2 column ran on H200 (hardware sensitivity)"],
+  ["v1.2-proposal-hres0.4-local_per_batch-ggn_tf32", "rc2 · TF32 GGN", "rc2 with TF32 matmuls in the GGN products only (Muon map and JVP stay FP32)"],
+  ["v1.2-proposal-hres0.4-local_per_batch-rank64", "rc2 · rank 64", "RANK64 diagnostic arm: rc2 at rank 64 (512 Lanczos products)"],
+  ["v1.2-proposal-hres0.4-local_per_batch-random", "rc2 · random basis", "RANDOM_STAT_FEEDBACK arm: Gaussian basis, only finite/QR gates on the basis"],
 ];
 
 function gateCell(c) {
@@ -442,8 +446,56 @@ function renderGateMatrix() {
     el("p", { class: "caption", text: present.map(([, label, hint]) => `${label}: ${hint}`).join(" · ") })));
 }
 
+// Local-check max error at each trajectory point: pooled (x) against per-batch (y), same basis.
+function renderLocalScatter() {
+  const host = document.getElementById("local-scatter");
+  const pts = [];
+  for (const r of DATA.runs) {
+    if (r.method !== "BASE_SQRT") continue;
+    const by = {};
+    for (const c of r.calibrations || []) (by[c.index] ??= {})[c.protocol] = c;
+    for (const cells of Object.values(by)) {
+      const y = cells["v1.2-proposal-hres0.4-local_per_batch"];
+      const x = [cells["v1.2-proposal"], cells["v1.2-proposal-hres0.4"]].find((c) => c && c.local_max_error != null);
+      if (y && x && y.local_max_error != null) pts.push({ kappa: r.kappa, anchor: r.anchor, step: y.step, x: x.local_max_error, y: y.local_max_error });
+    }
+  }
+  if (!pts.length) { host.replaceChildren(); return; }
+  const W = 460, H = 360, m = { l: 52, r: 16, t: 14, b: 44 }, lim = 0.7;
+  const x = linear(0, lim, m.l, W - m.r), y = linear(0, lim, H - m.b, m.t);
+  const svg = el("svg:svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", style: "max-width:520px", role: "img", "aria-label": "local-check error, pooled against per-batch" });
+  for (const t of [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]) {
+    svg.append(el("svg:line", { class: "gridline", x1: m.l, x2: W - m.r, y1: y(t), y2: y(t) }));
+    svg.append(el("svg:text", { x: m.l - 6, y: y(t) + 3.5, "text-anchor": "end", text: t.toFixed(1) }));
+    svg.append(el("svg:text", { x: x(t), y: H - m.b + 16, "text-anchor": "middle", text: t.toFixed(1) }));
+  }
+  svg.append(el("svg:rect", { x: x(0.5), y: m.t, width: x(lim) - x(0.5), height: y(0) - m.t, fill: css("--critical"), opacity: 0.06 }));
+  svg.append(el("svg:rect", { x: m.l, y: m.t, width: x(0.5) - m.l, height: y(0.5) - m.t, fill: css("--critical"), opacity: 0.06 }));
+  svg.append(el("svg:line", { x1: x(0), y1: y(0), x2: x(lim), y2: y(lim), stroke: css("--muted"), "stroke-dasharray": "3 4" }));
+  svg.append(el("svg:line", { x1: x(0.5), x2: x(0.5), y1: m.t, y2: y(0), stroke: css("--critical"), "stroke-width": 1 }));
+  svg.append(el("svg:line", { x1: m.l, x2: W - m.r, y1: y(0.5), y2: y(0.5), stroke: css("--critical"), "stroke-width": 1 }));
+  svg.append(el("svg:text", { x: x(0.5) + 4, y: m.t + 10, text: "gate 0.5" }));
+  for (const p of pts) {
+    const dot = el("svg:circle", { cx: x(Math.min(p.x, lim)), cy: y(Math.min(p.y, lim)), r: 5, fill: css(p.kappa === 16 ? "--s1" : "--s2"), stroke: css("--surface"), "stroke-width": 2 });
+    const hit = el("svg:circle", { cx: x(Math.min(p.x, lim)), cy: y(Math.min(p.y, lim)), r: 11, fill: "transparent" });
+    hit.addEventListener("mousemove", (evt) => showTip(evt, `<b>κ${p.kappa} · a${p.anchor} · step ${fmtInt(p.step)}</b><br/>pooled ${p.x.toFixed(3)} → per-batch ${p.y.toFixed(3)}`));
+    hit.addEventListener("mouseleave", hideTip);
+    svg.append(dot, hit);
+  }
+  svg.append(el("svg:text", { x: (m.l + W - m.r) / 2, y: H - 8, "text-anchor": "middle", text: "pooled check (8-batch mean gradient)" }));
+  svg.append(el("svg:text", { x: 14, y: (m.t + H - m.b) / 2, transform: `rotate(-90 14 ${(m.t + H - m.b) / 2})`, "text-anchor": "middle", text: "per-batch check (rc2)" }));
+  const legend = el("div", { class: "legend" },
+    el("span", {}, el("span", { class: "dot", style: `background:${css("--s1")}` }), " κ = 16"),
+    el("span", {}, el("span", { class: "dot", style: `background:${css("--s2")}` }), " κ = 4"),
+    el("span", { text: "dashed: equal error · shaded: fails the 0.5 gate" }));
+  host.replaceChildren(el("div", { class: "card" }, el("h3", { text: "Local-check max error: pooled vs per-batch (§7)" }),
+    el("p", { class: "caption", text: "Same calibration point and basis; below the diagonal the per-batch check agrees better with K0. K0 averages Jacobians at single-B0 gradients, and the pooled check evaluates the Jacobian at an 8-batch mean, a different noise level." }),
+    legend, svg));
+}
+
 function renderCalibration() {
   renderGateMatrix();
+  renderLocalScatter();
   const rows = DATA.runs.flatMap((r) => (r.calibrations || []).map((c) => ({ ...c, method: r.method, anchor: r.anchor, kappa: r.kappa })))
     .concat((DATA.dry_runs || []).map((c) => ({ ...c, method: `dry run · ${c.method || ""}` })));
   const host = document.getElementById("cal-chart");
