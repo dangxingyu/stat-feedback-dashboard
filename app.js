@@ -662,7 +662,8 @@ function renderMomentumScale() {
   const scans = (DATA.batch_scans || []).filter((r) => r.momentum_scale != null);
   const states = [[11000, 1000, "--s1", "reference 128K", "128K", "reference 128K@11000"],
     [5000, 5000, "--s3", "reference 128K", "128K", "reference 128K@5000"],
-    [11240, 1000, "--s2", "2M", "2M", "2M@11240"]];
+    [11240, 1000, "--s2", "2M", "2M", "2M@11240"], [7000, 1000, "--s5", "reference 128K", "128K", "reference 128K@7000"],
+    [7144, 1000, "--s4", "2M", "2M", "2M@7144"]];
   const series = [];
   for (const [step, anchor, c, params, label, key] of states) {
     const norm = norms[key];
