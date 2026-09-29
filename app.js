@@ -627,8 +627,34 @@ function renderBatchScans() {
     valueFormat: (v) => `${v.toFixed(2)}×`, yFormat: (v) => v.toFixed(1), marks: [] });
 }
 
+// Hybrid states: parameters and the Muon buffer m from different trainings (a1000 probes).
+function renderHybrids() {
+  const host = document.getElementById("eng-hybrid");
+  if (!host) return;
+  const scans = DATA.batch_scans || [];
+  const mOf = (r) => r.momentum_from ? (r.momentum_from.includes("muon-s1-parent") ? "128K" : "2M")
+    : r.params_from === "reference 128K" ? "128K" : r.params_from;
+  const pOf = (r) => r.params_from === "reference 128K" ? "128K" : r.params_from;
+  const rows = scans.filter((r) => r.anchor === 1000 && [7000, 11000].some((st) => Math.abs(r.step - st) <= 300)
+    && pOf(r) !== "512K").sort((a, b) => a.step - b.step || pOf(a).localeCompare(pOf(b)) || mOf(a).localeCompare(mOf(b)));
+  if (!rows.some((r) => r.trajectory === "hybrid")) { host.replaceChildren(); return; }
+  const table = el("table", {}, el("tr", {}, ["step", "parameters from", "momentum m from", "B* (base batches)", "|μ₁|"].map((h, i) =>
+    el("th", { class: i > 2 ? "num" : "", text: h }))));
+  for (const r of rows) {
+    const hybrid = r.trajectory === "hybrid";
+    table.append(el("tr", {}, el("td", { text: fmtInt(r.step) }), el("td", { text: `${pOf(r)} training` }),
+      el("td", {}, el("b", { text: hybrid ? `${mOf(r)} training` : "" }), el("span", { text: hybrid ? "" : `${mOf(r)} training (same state)` })),
+      el("td", { class: "num", text: r.fit_mu.B_star.toFixed(2) }),
+      el("td", { class: "num", text: r.mu1 != null ? r.mu1.toFixed(2) : "–" })));
+  }
+  host.replaceChildren(el("div", { class: "card" }, el("h3", { text: "Parameters or optimizer state? Hybrid states" }),
+    el("p", { class: "caption", text: "Each hybrid takes the parameters of one state and the Muon momentum buffer m of the other (bold). B* follows m: the 2M-trained buffer alone reproduces the rise, the 128K buffer removes it. The basis also changes with m, since P depends on it." }),
+    el("div", { class: "scroll" }, table)));
+}
+
 function renderEngineering() {
   renderBatchScans();
+  renderHybrids();
   const runs = (DATA.dry_runs || []).filter((r) => r.rho && r.rho_validation);
   const host = document.getElementById("eng-rayleigh");
   host.replaceChildren();
