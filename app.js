@@ -8,13 +8,13 @@ const METHOD_ORDER = ["BASE_SQRT", "STAT", "FEEDBACK", "STAT_FEEDBACK", "RANDOM_
 const METHOD_COLOR = {
   BASE_SQRT: "--s1", STAT: "--s2", FEEDBACK: "--s3", STAT_FEEDBACK: "--s4",
   RANDOM_STAT_FEEDBACK: "--s5", FROZEN_BASIS: "--s6", RANK64: "--s7",
-  LEGACY_FULLY_SCALED: "--s8", LEGACY_HELD16: "--s1",
+  LEGACY_FULLY_SCALED: "--s8", LEGACY_HELD16: "--s1", GLOBAL_SELECTED: "--s7",
 };
 const METHOD_LABEL = {
   BASE_SQRT: "√κ baseline", STAT: "Stat", FEEDBACK: "Feedback", STAT_FEEDBACK: "Stat × feedback",
   RANDOM_STAT_FEEDBACK: "Random basis", FROZEN_BASIS: "Frozen basis", RANK64: "Rank 64",
   LEGACY_FULLY_SCALED: "Legacy fully scaled", LEGACY_HELD16: "Legacy held-16",
-  GLOBAL_CANDIDATE: "Global c", REFERENCE: "128K reference",
+  GLOBAL_CANDIDATE: "Global c", REFERENCE: "128K reference", GLOBAL_SELECTED: "Global scalar (selected c)",
 };
 const C_COLOR = { 0.25: "--seq-250", 0.5: "--seq-350", 1: "--seq-450", 2: "--seq-550", 4: "--seq-650" };
 const STATUS = {
@@ -235,7 +235,98 @@ function renderFinal() {
     el("p", { class: "caption", text: `Diagnostics at a = 5,000: ${d5}. Reading (protocol §13): early gains (−0.009 to −0.019 at a+1024) shrink to ≈ −0.001 at the endpoint; the combination beats √κ but not the global scalar, so the endpoint gain cannot be attributed to the directional model. Receipt: RESULTS.md.` })));
 }
 
+// Dot plot: one row per comparison, one marker per anchor, a bar for the three-anchor mean.
+function dotPlot(host, { title, caption, rows, domain, band, fmtTick }) {
+  const W = 540, rowH = 34, m = { l: 190, r: 30, t: 26, b: 40 }, H = m.t + m.b + rows.length * rowH;
+  const x = linear(domain[0], domain[1], m.l, W - m.r);
+  const svg = el("svg:svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", role: "img", "aria-label": title });
+  if (band) svg.append(el("svg:rect", { x: x(-band), y: m.t - 6, width: x(band) - x(-band), height: rows.length * rowH + 6,
+    fill: css("--muted"), opacity: 0.12 }));
+  for (const t of niceTicks(domain[0], domain[1], 6)) {
+    svg.append(el("svg:line", { class: "gridline", x1: x(t), x2: x(t), y1: m.t - 6, y2: H - m.b }));
+    svg.append(el("svg:text", { x: x(t), y: H - m.b + 16, "text-anchor": "middle", text: fmtTick(t) }));
+  }
+  svg.append(el("svg:line", { x1: x(0), x2: x(0), y1: m.t - 6, y2: H - m.b, stroke: css("--ink-2"), "stroke-width": 1 }));
+  svg.append(el("svg:text", { x: (m.l + W - m.r) / 2, y: H - 6, "text-anchor": "middle",
+    text: "loss difference (nats/token); negative = better than √κ" }));
+  const anchors = [[1000, "--s1"], [5000, "--s3"], [9000, "--s4"]];
+  rows.forEach((row, i) => {
+    const cy = m.t + i * rowH + rowH / 2 - 6;
+    svg.append(el("svg:text", { x: m.l - 10, y: cy + 4, "text-anchor": "end", text: row.label }));
+    svg.append(el("svg:line", { x1: m.l, x2: W - m.r, y1: cy, y2: cy, stroke: css("--grid"), "stroke-width": 1 }));
+    if (row.mean != null) svg.append(el("svg:line", { x1: x(row.mean), x2: x(row.mean), y1: cy - 10, y2: cy + 10,
+      stroke: css("--ink"), "stroke-width": 2.5, "stroke-linecap": "round" }));
+    anchors.forEach(([a, c], j) => {
+      const v = row.values[a];
+      if (v == null) return;
+      const dot = el("svg:circle", { cx: x(Math.max(domain[0], Math.min(domain[1], v))), cy: cy + (j - 1) * 3, r: 5,
+        fill: css(c), stroke: css("--surface"), "stroke-width": 2 });
+      const hit = el("svg:circle", { cx: x(Math.max(domain[0], Math.min(domain[1], v))), cy: cy + (j - 1) * 3, r: 10, fill: "transparent" });
+      hit.addEventListener("mousemove", (evt) => showTip(evt, `<b>${row.label}</b><br/>anchor ${fmtInt(a)}: ${v >= 0 ? "+" : ""}${v.toFixed(5)}` +
+        (row.mean != null ? `<br/>three-anchor mean: ${row.mean >= 0 ? "+" : ""}${row.mean.toFixed(5)}` : "")));
+      hit.addEventListener("mouseleave", hideTip);
+      svg.append(dot, hit);
+    });
+  });
+  const legend = el("div", { class: "legend" }, ...anchors.map(([a, c]) =>
+    el("span", {}, el("span", { class: "dot", style: `background:${css(c)}` }), ` anchor ${fmtInt(a)}`)),
+    el("span", { text: "▮ three-anchor mean" }), band ? el("span", { text: `shaded: ±${band} (preset threshold)` }) : "");
+  host.append(el("div", { class: "card" }, el("h3", { text: title }), el("p", { class: "caption", text: caption }), legend, svg));
+}
+
+function renderResultCharts() {
+  const host = document.getElementById("result-charts");
+  if (!host) return;
+  host.replaceChildren();
+  const F = DATA.final;
+  if (!F || !F.paired) return;
+  const byRun = (method, kappa, anchor) => DATA.runs.find((r) => r.method === method && r.kappa === kappa && r.anchor === anchor
+    && (method !== "GLOBAL_CANDIDATE" || r.c === F.selected_c));
+  const spec = [["Stat", "STAT", 16], ["Feedback", "FEEDBACK", 16], ["Stat × feedback (primary)", "STAT_FEEDBACK", 16],
+    [`Global scalar c = ${F.selected_c}`, "GLOBAL_CANDIDATE", 16], ["κ = 4: Stat × feedback", "STAT_FEEDBACK", 4]];
+  const rows = (field) => spec.map(([label, method, kappa]) => {
+    const values = {};
+    for (const a of [1000, 5000, 9000]) { const r = byRun(method, kappa, a); if (r && r[field] != null) values[a] = r[field]; }
+    const vs = Object.values(values);
+    return { label, values, mean: vs.length === 3 ? vs.reduce((x, y) => x + y, 0) / 3 : null };
+  });
+  dotPlot(host, { title: "Endpoint: final-set loss − √κ at step 13,000", rows: rows("final_delta"), domain: [-0.006, 0.006], band: 0.002,
+    fmtTick: (t) => (t > 0 ? "+" : "") + t.toFixed(3),
+    caption: "Locked final set (10.5M tokens), same checkpoint lineage per anchor. Stat alone is worse at every anchor; feedback carries the gain; the global scalar beats the directional combination on average." });
+  dotPlot(host, { title: "Early: monitor loss − √κ at anchor + 1,024", rows: rows("early_delta"), domain: [-0.12, 0.04], band: null,
+    fmtTick: (t) => (t > 0 ? "+" : "") + t.toFixed(2),
+    caption: "Full monitor set, 1,024 reference steps after the switch (the Section 6 horizon). Early gains are 5–20× larger than at the endpoint: they mostly fade by step 13,000." });
+}
+
 function renderFindings() {
+  const F = DATA.final;
+  if (F && F.primary && F.primary.D != null) {
+    const P = F.primary, pd = F.paired, sg = (v) => (v >= 0 ? "+" : "") + v.toFixed(4);
+    const scans = DATA.batch_scans || [];
+    const b = (traj, step) => { const r = scans.find((q) => q.trajectory === traj && q.step === step); return r ? r.fit_mu.B_star.toFixed(1) : "?"; };
+    const groups = [
+      ["Confirmatory result (protocol v1.2, locked, final set, single seed)", [
+        `Primary: D = ${sg(P.D)} nats/token, below the preset 0.002; all three anchors improve (Δ = ${[1000, 5000, 9000].map((a) => sg(P.delta[a])).join(", ")}). The correction removes ${(100 * P.removal_ratio).toFixed(1)}% of the 2M penalty (P = ${P.P.toFixed(3)}); every anchor stays ${[1000, 5000, 9000].map((a) => P.Q[a].toFixed(3)).join(" / ")} above the 128K endpoint.`,
+        `Components pull in opposite directions: feedback alone ${sg(pd.FEEDBACK_vs_BASE_SQRT_k16.mean)} (better at every anchor), Stat alone ${sg(pd.STAT_vs_BASE_SQRT_k16.mean)} (worse at every anchor).`,
+        `The global scalar control (c = ${F.selected_c}) reaches ${sg(pd.GLOBAL_SELECTED_vs_BASE_SQRT_k16.mean)} and beats the combination by ${sg(-pd.STAT_FEEDBACK_vs_GLOBAL_SELECTED_k16.mean).replace("+", "")}: per protocol §13 the endpoint gain cannot be attributed to the directional model.`,
+        "Early vs endpoint: at anchor + 1,024 feedback is −0.019 / −0.016 / −0.005 against √κ; by step 13,000 the gains shrink to ≈ −0.001. This supports short-term trajectory improvement, not endpoint sample efficiency.",
+        `κ = 4 (512K) is null: ${sg(pd.STAT_FEEDBACK_vs_BASE_SQRT_k4.mean)}. Diagnostics at a = 5,000: sharp beats random basis by ${(-pd.RANDOM_vs_STAT_FEEDBACK_a5000.mean).toFixed(4)}; refreshing the basis does nothing (frozen ${sg(pd.FROZEN_vs_STAT_FEEDBACK_a5000.mean)}); rank 64 beats rank 16 by ${(-pd.RANK64_vs_STAT_FEEDBACK_a5000.mean).toFixed(4)}; the Section 6 held-16 advantage fades to ${sg(pd.LEGACY_HELD16_vs_FULLY_SCALED_a5000.mean)} at the endpoint.`,
+      ]],
+      ["Mechanism (engineering measurements, see Engineering)", [
+        `The noise scale B* of Muon's update in the sharp subspace follows the training batch: ≈ ${b("reference 128K", 11000)} base batches in the 128K state at step 11,000 vs ${b("512K from a1000", 11240)} (512K) and ${b("2M from a1000", 11240)} (2M) at the same step.`,
+        "It is set by the size of Muon's momentum buffer, not by the parameters: swapping or rescaling the buffer moves B* along one curve B* = B_g / (1 + (|m|/m₀)^p). Large-batch training shrinks the buffer 2.4–5.4×, so fresh-gradient noise weighs more in the polar map.",
+        "In 2M-trained states the fitted Stat operator is √κ plus a single boost equal to the movement ansatz κ·A(1)/A(κ) (6–8×), which likely explains why Stat alone overshoots.",
+      ]],
+      ["Protocol and engineering", [
+        "v1.1's calibration gates failed on every anchor; v1.2 (8-batch geometry pools, held-out V, replicable-mode selection with per-vector residual ≤ 0.40, per-batch local check) passes 23/24 trajectory calibration points; all 12,000 confirmatory updates applied the correction.",
+        "Training is bitwise reproducible across runs and H100 nodes (rank-ordered reductions + deterministic kernels); FP32 calibration agrees across H100/H200 to ~1e-6, TF32 was rejected because it reorders near-degenerate modes.",
+      ]],
+    ];
+    const host = document.getElementById("findings");
+    host.replaceChildren(...groups.map(([head, items]) => el("li", {}, el("b", { text: head }),
+      el("ul", {}, ...items.map((t) => el("li", { text: t }))))));
+    return;
+  }
   const items = [];
   const dev = DATA.dev;
   if (dev.rows.length) {
@@ -318,13 +409,19 @@ function cell(r) {
   node.append(el("div", { class: "bar", style: "margin-top:6px" },
     el("span", { style: `width:${(progress * 100).toFixed(1)}%;background:${color}` })));
   node.append(el("div", { class: "meta" }, el("span", { text: r.step ? `step ${fmtInt(r.step)}` : "" }),
-    el("span", { text: r.status === "running" ? `ETA ${dur(r.eta_seconds)}` : (r.last_training_loss ? `train ${fmt(r.last_training_loss, 3)}` : "") })));
+    el("span", { text: r.status === "running" ? `ETA ${dur(r.eta_seconds)}`
+      : r.final_loss != null ? `final ${r.final_loss.toFixed(4)}` + (r.final_delta != null ? ` (${r.final_delta >= 0 ? "+" : ""}${r.final_delta.toFixed(4)})` : "")
+      : r.result && r.result.scores && r.result.scores.dev != null ? `dev ${r.result.scores.dev.toFixed(4)}`
+      : (r.last_training_loss ? `train ${fmt(r.last_training_loss, 3)}` : "") })));
   node.addEventListener("mousemove", (evt) => showTip(evt, [
     `<b>${r.run_id}</b>`,
     `status: ${r.status}${r.engineering_only ? " (engineering only)" : ""}`,
     `updates: ${fmtInt(r.updates_done)} / ${fmtInt(r.updates_total)}`,
     `per update: ${r.seconds_per_update ? r.seconds_per_update.toFixed(2) + " s" : "–"}`,
     `calibrations: ${(r.calibrations || []).length} / ${r.calibrations_planned}`,
+    r.final_loss != null ? `final-set loss (step 13,000): ${r.final_loss.toFixed(5)}` : "",
+    r.final_delta != null ? `vs √κ at the endpoint: ${r.final_delta >= 0 ? "+" : ""}${r.final_delta.toFixed(5)}` : "",
+    r.early_delta != null ? `vs √κ at anchor + 1,024 (monitor): ${r.early_delta >= 0 ? "+" : ""}${r.early_delta.toFixed(5)}` : "",
     r.lane ? `lane: ${r.lane}` : "",
     r.fallbacks && Object.keys(r.fallbacks).length ? `fallbacks: ${JSON.stringify(r.fallbacks)}` : "",
   ].filter(Boolean).join("<br/>")));
@@ -343,7 +440,7 @@ function curveSeries(runs, mode, baselineFor) {
     }
     const isC = r.method === "GLOBAL_CANDIDATE";
     return {
-      name: isC ? `c = ${r.c}` : METHOD_LABEL[r.method] || r.method,
+      name: isC ? `c = ${r.c}` : r.method === "GLOBAL_SELECTED" ? `Global scalar c = ${r.c}` : METHOD_LABEL[r.method] || r.method,
       color: css(isC ? C_COLOR[r.c] : METHOD_COLOR[r.method]), points,
     };
   }).filter(Boolean);
@@ -360,7 +457,9 @@ function renderCurves() {
   for (const kappa of [16, 4]) {
     for (const anchor of [1000, 5000, 9000]) {
       const runs = DATA.runs.filter((r) => ["primary", "transfer"].includes(r.phase) && r.anchor === anchor && r.kappa === kappa)
-        .sort((a, b) => METHOD_ORDER.indexOf(a.method) - METHOD_ORDER.indexOf(b.method));
+        .sort((a, b) => METHOD_ORDER.indexOf(a.method) - METHOD_ORDER.indexOf(b.method))
+        .concat(kappa === 16 && DATA.protocol.selected_c != null ? DATA.runs.filter((r) => r.method === "GLOBAL_CANDIDATE"
+          && r.c === DATA.protocol.selected_c && r.anchor === anchor).map((r) => ({ ...r, method: "GLOBAL_SELECTED" })) : []);
       panels.push({ title: `Anchor ${anchor.toLocaleString()} · κ = ${kappa} (${kappa === 16 ? "2M" : "512K"} tokens)`, runs, anchor, kappa });
     }
   }
@@ -801,9 +900,9 @@ function renderEngineering() {
 
 function render() {
   renderEngineering();
-  renderStamp(); renderTiles(); renderFinal(); renderFindings(); renderMatrix(); renderCurves(); renderDev(); renderCalibration(); renderChecks(); renderProtocol();
+  renderStamp(); renderTiles(); renderFinal(); renderResultCharts(); renderFindings(); renderMatrix(); renderCurves(); renderDev(); renderCalibration(); renderChecks(); renderProtocol();
   document.getElementById("foot").textContent =
-    "Generated from the run directories by dashboard/export.py. Numbers are single-seed and provisional until the protocol lock.";
+    "Generated from the run directories by dashboard/export.py. Final-set numbers come from the locked scores (protocol v1.2); everything is single-seed on one reference trajectory.";
 }
 
 document.getElementById("tabs").addEventListener("click", (evt) => {

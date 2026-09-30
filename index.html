@@ -36,8 +36,9 @@
     <section id="overview" class="tab on">
       <div class="tiles" id="tiles"></div>
       <div class="notice" id="notices"></div>
-      <h2>Findings so far</h2>
+      <h2>Results</h2>
       <div id="final-result"></div>
+      <div class="grid2" id="result-charts"></div>
       <ul class="prose" id="findings"></ul>
       <h2>Run matrix</h2>
       <p class="caption">Each cell is one trajectory from its anchor to step 13,000. Bars show progress in
@@ -54,7 +55,7 @@
       <p class="caption">Monitor-set loss (first 1,048,576 tokens of a fixed validation span, nats/token)
         every 128 reference steps. The dashed vertical line marks anchor + 1,024, the length of the
         Section 6 branches. The paired difference subtracts BASE_SQRT from the same anchor at the same
-        step (negative = better). Final-set scores stay hidden until the scalar selection is locked.</p>
+        step (negative = better). The κ = 16 panels include the selected global scalar (c = 0.5) as the strong control. Final-set scores are on the Overview.</p>
       <div class="grid2" id="curve-panels"></div>
       <p class="caption" id="curve-pending"></p>
     </section>
